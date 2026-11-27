@@ -13,36 +13,59 @@ function setEngineState(text,ready=false){
   engineState.innerHTML='<span class="pulse '+(ready?'ready':'')+'"></span>'+text;
 }
 function initEngine(){
-  // Blob wrapper keeps the worker same-origin while loading Stockfish's worker bundle from CDN.
-  const engineUrl='https://cdn.jsdelivr.net/npm/stockfish@16.0.0/bin/stockfish-16.0-lite-single.js';
-  const workerCode=`self.Module={locateFile:(path)=>'https://cdn.jsdelivr.net/npm/stockfish@16.0.0/bin/'+path};importScripts('${engineUrl}');`;
+  // Stockfish 16 package uses these exact filenames under /src/.
+  // A Blob worker lets the page create a worker while the engine assets load from jsDelivr.
+  const engineBase='https://cdn.jsdelivr.net/npm/stockfish@16.0.0/src/';
+  const engineFile='stockfish-nnue-16-single.js';
+  const workerCode=`
+    var Module = {
+      locateFile: function(path) {
+        return '${engineBase}' + path;
+      }
+    };
+    importScripts('${engineBase}${engineFile}');
+  `;
   try{
     const blob=new Blob([workerCode],{type:'text/javascript'});
-    engine=new Worker(URL.createObjectURL(blob));
+    const workerUrl=URL.createObjectURL(blob);
+    engine=new Worker(workerUrl);
     engine.onmessage=(event)=>{
       const line=typeof event.data==='string'?event.data:'';
-      if(line==='uciok'){engine.postMessage('isready');}
-      if(line==='readyok'){
-        engineReady=true;setEngineState('Engine ready · Stockfish 16 WASM',true);
+      if(line==='uciok'){
+        engine.postMessage('isready');
+      } else if(line==='readyok'){
+        engineReady=true;
+        setEngineState('Engine ready · Stockfish 16 WASM',true);
         maybeComputerMove();
-      }
-      if(line.startsWith('bestmove')){
+      } else if(line.startsWith('bestmove')){
         engineBusy=false;
         const move=line.split(/\s+/)[1];
         if(move && move!=='(none)' && !game.game_over()){
           const from=move.slice(0,2),to=move.slice(2,4),promotion=move[4];
           const result=game.move({from,to,promotion:promotion||'q'});
-          if(result){lastMove={from:result.from,to:result.to};selected=null;legalTargets=[];render();}
+          if(result){
+            lastMove={from:result.from,to:result.to};
+            selected=null;legalTargets=[];render();
+          }
+        } else {
+          render();
         }
       }
     };
-    engine.onerror=()=>{
-      engineReady=false;setEngineState('Engine gagal dimuat. Cek koneksi/CDN lalu refresh.');
+    engine.onerror=(event)=>{
+      engineReady=false;engineBusy=false;
+      const detail=event.message||'Worker/CDN/WASM load error';
+      setEngineState('Gagal memuat engine: '+detail+' · Periksa koneksi lalu refresh.');
       statusEl.textContent='Stockfish tidak tersedia';
+    };
+    engine.onmessageerror=()=>{
+      engineReady=false;engineBusy=false;
+      setEngineState('Respons engine tidak terbaca. Refresh halaman untuk mencoba lagi.');
     };
     engine.postMessage('uci');
   }catch(err){
-    setEngineState('Browser tidak mengizinkan Web Worker. Coba browser terbaru.');
+    engineReady=false;
+    setEngineState('Browser gagal membuat Web Worker: '+err.message);
   }
 }
 function askEngine(){
