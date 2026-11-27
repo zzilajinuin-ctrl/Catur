@@ -16,7 +16,7 @@ function initEngine(){
   // Stockfish 19 Lite Single is stored locally in ./stockfish/.
   // Keep the matching .js and .wasm files in the same folder.
   try{
-    engine = new Worker('./stockfish/stockfish-19-lite-single.js');
+    engine = new Worker('../stockfish/stockfish-19-lite-single.js');
 
     engine.onmessage = (event) => {
       const line = typeof event.data === 'string' ? event.data : '';
